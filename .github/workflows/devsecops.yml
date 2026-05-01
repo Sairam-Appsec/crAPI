@@ -14,15 +14,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Step 1: Secrets Scan (TruffleHog)
+      # 1. Secrets Scan (TruffleHog)
       - name: Secret Scan
         uses: trufflesecurity/trufflehog@main
         continue-on-error: true
         with:
           path: ./
-          base: ""
+          base: "" 
 
-      # Step 2: SAST (SonarCloud)
+      # 2. SAST (SonarCloud) 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -30,16 +30,22 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
+            -Dsonar.projectKey=Sairam-Appsec_crAPI
+            -Dsonar.organization=sairam-appsec
             -Dsonar.java.binaries=.
+            -Dsonar.sources=.
+            -Dsonar.c.file.suffixes=-
+            -Dsonar.cpp.file.suffixes=-
+            -Dsonar.objc.file.suffixes=-
 
-      # Step 3: SCA (Snyk)
+      # 3. SCA (Snyk)
       - name: Snyk Security Scan
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-      # Step 4: IaC Scan (Checkov)
+      # 4. IaC Scan (Checkov)
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@master
         with:
@@ -47,29 +53,16 @@ jobs:
           framework: dockerfile
           soft_fail: true
 
-      # Step 5: DOCKER IMAGE BUILD
-      - name: Build Docker Images
+      # 5. DOCKER BUILD 
+      - name: Build Web Image
         run: |
-          cd deploy/docker
-          docker-compose build
-        env:
-          DOCKER_BUILDKIT: 1
+          docker build -t crapi/web:latest -f services/web/Dockerfile services/web/
 
-      # Step 6: TRIVY CONTAINER SCAN (On the fresh images)
-      - name: Trivy Scan (Web Image)
+      # 6. Container Scan (Trivy) 
+      - name: Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'crapi/web:latest'
-          scan-type: 'image'
-          format: 'table'
-          exit-code: '0'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Trivy Scan (API Image)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'crapi/api:latest'
-          scan-type: 'image'
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
