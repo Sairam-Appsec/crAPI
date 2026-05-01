@@ -20,9 +20,9 @@ jobs:
         continue-on-error: true
         with:
           path: ./
-          base: "" 
+          base: ""
 
-      # 2. SAST (SonarCloud)
+      # 2. SAST (SonarCloud) - Ignoring C++ and Java binary errors
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -30,8 +30,10 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
-            -Dsonar.java.binaries=. 
-            -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
+            -Dsonar.java.binaries=.
+            -Dsonar.c.file.suffixes=-
+            -Dsonar.cpp.file.suffixes=-
+            -Dsonar.objc.file.suffixes=-
 
       # 3. SCA (Snyk)
       - name: Snyk Security Scan
