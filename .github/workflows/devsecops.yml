@@ -14,7 +14,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 1. Secrets Scan (TruffleHog)
+      # Step 1: Secrets Scan (TruffleHog)
       - name: Secret Scan
         uses: trufflesecurity/trufflehog@main
         continue-on-error: true
@@ -22,7 +22,7 @@ jobs:
           path: ./
           base: ""
 
-      # 2. SAST (SonarCloud) - Ignoring C++ and Java binary errors
+      # Step 2: SAST (SonarCloud)
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -31,18 +31,15 @@ jobs:
         with:
           args: >
             -Dsonar.java.binaries=.
-            -Dsonar.c.file.suffixes=-
-            -Dsonar.cpp.file.suffixes=-
-            -Dsonar.objc.file.suffixes=-
 
-      # 3. SCA (Snyk)
+      # Step 3: SCA (Snyk)
       - name: Snyk Security Scan
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-      # 4. IaC Scan (Checkov)
+      # Step 4: IaC Scan (Checkov)
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@master
         with:
@@ -50,10 +47,29 @@ jobs:
           framework: dockerfile
           soft_fail: true
 
-      # 5. Image Scan (Trivy)
-      - name: Trivy Scan
+      # Step 5: DOCKER IMAGE BUILD
+      - name: Build Docker Images
+        run: |
+          cd deploy/docker
+          docker-compose build
+        env:
+          DOCKER_BUILDKIT: 1
+
+      # Step 6: TRIVY CONTAINER SCAN (On the fresh images)
+      - name: Trivy Scan (Web Image)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'crapi/web:latest'
+          scan-type: 'image'
           format: 'table'
           exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Trivy Scan (API Image)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'crapi/api:latest'
+          scan-type: 'image'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
