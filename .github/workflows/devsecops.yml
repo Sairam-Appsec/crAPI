@@ -66,3 +66,38 @@ jobs:
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
+          # --- PHASE 2: DYNAMIC SECURITY TESTING (DAST) ---
+
+      # 6. Spin up crAPI
+      - name: Spin up crAPI
+        run: |
+          cd deploy/docker
+          docker-compose up -d
+          sleep 120 
+
+      # 7. OWASP ZAP (Baseline Web Scan)
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'http://localhost:8888'
+          fail_action: false
+
+      # 8. Schemathesis (API Fuzzing & Security)
+      - name: Schemathesis API Scan
+        run: |
+          docker run --network="host" schemathesis/schemathesis:latest \
+          run http://localhost:8888/openapi.json \
+          --checks all --base-url http://localhost:8888
+        continue-on-error: true
+
+      # 9. Nikto (Web Server Scan)
+      - name: Nikto Scan
+        run: |
+          docker run --rm --network="host" sullo/nikto -h http://localhost:8888
+        continue-on-error: true
+
+      # 10. Stop crAPI (Cleanup)
+      - name: Shutdown crAPI
+        run: |
+          cd deploy/docker
+          docker-compose down
