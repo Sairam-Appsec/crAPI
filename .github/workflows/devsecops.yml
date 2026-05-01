@@ -72,7 +72,7 @@ jobs:
       - name: Spin up crAPI
         run: |
           cd deploy/docker
-          docker-compose up -d
+          docker compose up -d
           sleep 120 
 
       # 7. OWASP ZAP (Baseline Web Scan)
@@ -100,4 +100,4 @@ jobs:
       - name: Shutdown crAPI
         run: |
           cd deploy/docker
-          docker-compose down
+          docker compose down
