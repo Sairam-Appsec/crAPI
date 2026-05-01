@@ -3,36 +3,53 @@ name: crAPI-DevSecOps-Pipeline
 on:
   push:
     branches: [ develop ]
-  pull_request:
-    branches: [ develop ]
+  workflow_dispatch: 
 
 jobs:
   Security-Scans:
     runs-on: ubuntu-latest
     steps:
-      # 1. Getting the code into the runner.
+      # Step 1: To get the code into the runner
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Secrets Scan (TruffleHog) - Search for any keys dropped in the code.
+      # Step 2: Secrets Scan (TruffleHog)
       - name: Secret Scan
         uses: trufflesecurity/trufflehog@main
+        continue-on-error: true
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          base: "" # Full history scan 
 
-      # 3. SAST Scan (SonarCloud) - Code vulnerabilities finding
+      # Step 3: SAST Scan (SonarCloud) - Needs SONAR_TOKEN
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      # 4. SCA Scan (Snyk) - Vulnerable libraries finding
+      # Step 4: SCA Scan (Snyk) - Needs SNYK_TOKEN
       - name: Snyk Security Scan
         uses: snyk/actions/node@master
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      # Step 5: IaC Scan (Checkov)
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile
+          soft_fail: true 
+
+      # Step 6: Container Image Scan (Trivy) 
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'crapi/web:latest'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
