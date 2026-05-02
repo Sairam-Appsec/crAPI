@@ -86,28 +86,19 @@ jobs:
       # 8. Schemathesis (API Scan)
       - name: Schemathesis API Scan
         run: |
-          echo "Waiting for crAPI to be healthy..."
-          # Ee logic app ready ayye varaku wait chesthundhi
-          timeout 180s bash -c 'until curl -s http://localhost:8888/openapi.json; do sleep 5; echo "Waiting..."; done'
-          
-          docker run --rm --network="host" schemathesis/schemathesis:latest \
-          run http://localhost:8888/openapi.json \
-          --checks all | tee schemathesis_report.json || true
+          pip install schemathesis
+          echo "Waiting for crAPI services..."
+          sleep 120
+          schemathesis run http://localhost:8888/openapi.json --checks all | tee schemathesis_report.json || true
         continue-on-error: true
 
       # 9. Nikto (Server Scan)
       - name: Nikto Server Scan
         run: |
-          docker run --rm --network="host" ghcr.io/sullo/nikto:latest -h http://localhost:8888 -o nikto_report.xml || true
+          docker run --rm --network="host" sullo/nikto:latest -h http://localhost:8888 -o nikto_report.xml || true
         continue-on-error: true
 
-      # 10. Stop crAPI (Cleanup)
-      - name: Shutdown crAPI
-        run: |
-          cd deploy/docker
-          docker compose down
-
-      # 10. Final Reporting (With Always attribute)
+      # 10. Upload Security Reports 
       - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -117,3 +108,10 @@ jobs:
             report_html.html
             schemathesis_report.json
             nikto_report.xml
+
+      # 11. Shutdown crAPI 
+      - name: Shutdown crAPI
+        if: always()
+        run: |
+          cd deploy/docker
+          docker compose down || true
