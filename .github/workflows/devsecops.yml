@@ -88,17 +88,21 @@ jobs:
         run: |
           pip install schemathesis
           echo "Waiting for crAPI services..."
-          sleep 120
+          timeout 180s bash -c 'until curl -s http://localhost:8888/openapi.json; do sleep 5; done'
+          # Direct execution to avoid Docker permission hell
           schemathesis run http://localhost:8888/openapi.json --checks all | tee schemathesis_report.json || true
-        continue-on-error: true
+          chmod 777 schemathesis_report.json || true
 
-      # 9. Nikto (Server Scan)
+      # 9. Nikto (Server scan)
       - name: Nikto Server Scan
         run: |
-          docker run --rm --network="host" sullo/nikto:latest -h http://localhost:8888 -o nikto_report.xml || true
-        continue-on-error: true
+          docker run --rm --network="host" sullo/nikto:latest -h http://localhost:8888 > nikto_output.txt || true
+          # XML report formatting
+          docker run --rm --network="host" sullo/nikto:latest -h http://localhost:8888 -Format xml -o /tmp/nikto_report.xml || true
+          sudo docker cp $(docker ps -a -q | head -n 1):/tmp/nikto_report.xml ./nikto_report.xml || true
+          sudo chmod 777 nikto_report.xml || true
 
-      # 10. Upload Security Reports 
+      # 10. Upload Artifacts 
       - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -109,7 +113,7 @@ jobs:
             schemathesis_report.json
             nikto_report.xml
 
-      # 11. Shutdown crAPI 
+      # 11. Final Cleanup
       - name: Shutdown crAPI
         if: always()
         run: |
