@@ -97,18 +97,22 @@ jobs:
           sudo apt-get update && sudo apt-get install -y nikto
           nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
 
-      # 10. Upload Artifacts 
+      # 10. Upload Phase (Using Wildcards to find reports)
       - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Full-Security-Bundle
           path: |
-            report_html.html
-            schemathesis_report.json
-            nikto_report.xml
+            **/report_html.html
+            **/schemathesis_report.json
+            **/nikto_report.xml
+            ./report_html.html
+            ./schemathesis_report.json
+            ./nikto_report.xml
+          if-no-files-found: error 
 
-      # 11. Shutdown crAPI 
+      # 11. Shutdown Phase
       - name: Shutdown crAPI
         if: always()
         run: |
