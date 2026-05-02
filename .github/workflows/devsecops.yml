@@ -101,3 +101,14 @@ jobs:
         run: |
           cd deploy/docker
           docker compose down
+
+      # --- FINAL PHASE: REPORTING ---
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: crAPI-Security-Reports
+          # Check the reports in the specified files/folders.
+          path: |
+            **/report.json
+            **/results.xml
+            *.html
