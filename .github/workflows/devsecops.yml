@@ -86,14 +86,16 @@ jobs:
       # 8. Schemathesis (API Scan)
       - name: Schemathesis API Scan
         run: |
-          docker run --network="host" schemathesis/schemathesis:latest \
-          run http://localhost:8888/openapi.json \
+          # API container network lo dorakalante direct localhost vaadudham
+          docker run --rm --network="host" schemathesis/schemathesis:latest \
+          run "http://127.0.0.1:8888/openapi.json" \
           --checks all | tee schemathesis_report.json || true
 
-      # 9. Nikto (Server scan)
+      # 9. Nikto (Server Scan)
       - name: Nikto Server Scan
         run: |
-          docker run --rm --network="host" sullo/nikto:latest -h http://localhost:8888 -o nikto_report.xml || true
+          # Official sullo image kakunda alternative stable mirror vaadudham
+          docker run --rm --network="host" hmlio/nikto -h http://127.0.0.1:8888 -o nikto_report.xml || true
 
       # 10. Stop crAPI (Cleanup)
       - name: Shutdown crAPI
@@ -101,7 +103,7 @@ jobs:
           cd deploy/docker
           docker compose down
 
-      # --- FINAL PHASE: REPORTING ---
+      # 10. Upload Artifacts
       - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         with:
