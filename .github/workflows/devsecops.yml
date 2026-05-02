@@ -75,16 +75,19 @@ jobs:
           docker compose up -d
           sleep 120 
 
-      # 7. OWASP ZAP (Saving to a specific local path)
+      # 7. OWASP ZAP (Fixing Permissions with a shell script)
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: 'http://localhost:8888'
-          fail_action: false
-          # Force the report name and location
-          report_name: 'zap_report'
+        run: |
+          # Creating workspace and giving full permissions to avoid 'Permission Denied'
+          mkdir -p zap_out
+          chmod 777 zap_out
+          docker run --rm -v $(pwd)/zap_out:/zap/wrk/:rw --network="host" \
+          ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+          -t http://localhost:8888 -r zap_report.html || true
+          # Moving report to root so upload-artifact can find it easily
+          cp zap_out/zap_report.html ./report_html.html || true
 
-      # 8. Schemathesis
+      # 8. Schemathesis (Direct check for content)
       - name: Schemathesis API Scan
         run: |
           pip install schemathesis
@@ -92,27 +95,25 @@ jobs:
           timeout 180s bash -c 'until curl -s http://localhost:8888/openapi.json; do sleep 5; done'
           schemathesis run http://localhost:8888/openapi.json --checks all > schemathesis_report.json || true
 
-      # 9. Nikto
+      # 9. Nikto (Native install to avoid docker permission issues)
       - name: Nikto Server Scan
         run: |
           sudo apt-get update && sudo apt-get install -y nikto
           nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
 
-      # 10. Gather and Upload (The "No-Fail" logic)
+      # 10. Upload Artifacts (Total Bundle)
       - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Full-Security-Bundle
-          # wildcards and specific names
           path: |
-            zap_report.html
-            report.html
+            report_html.html
             schemathesis_report.json
             nikto_report.xml
-            zap_report* 
+          if-no-files-found: warn
 
-      # 11. Shutdown Phase
+      # 11. Shutdown crAPI
       - name: Shutdown crAPI
         if: always()
         run: |
