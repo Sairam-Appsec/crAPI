@@ -88,14 +88,12 @@ jobs:
         run: |
           docker run --network="host" schemathesis/schemathesis:latest \
           run http://localhost:8888/openapi.json \
-          --checks all --base-url http://localhost:8888 > schemathesis_report.json || true
-        continue-on-error: true
+          --checks all | tee schemathesis_report.json || true
 
-      # 9. Nikto (Server scan using official 'sullo/nikto' image)
+      # 9. Nikto (Server scan)
       - name: Nikto Server Scan
         run: |
-          docker run --rm --network="host" sullo/nikto -h http://localhost:8888 -o nikto_report.xml
-        continue-on-error: true
+          docker run --rm --network="host" sullo/nikto:latest -h http://localhost:8888 -o nikto_report.xml || true
 
       # 10. Stop crAPI (Cleanup)
       - name: Shutdown crAPI
@@ -112,4 +110,3 @@ jobs:
             report_html.html
             schemathesis_report.json
             nikto_report.xml
-            zap_report/
