@@ -75,26 +75,26 @@ jobs:
           docker compose up -d
           sleep 120 
 
-      # 7. OWASP ZAP (Baseline Web Scan) - Saving report as report.html
+      # 7. OWASP ZAP (Baseline Web Scan)
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: 'http://localhost:8888'
-          fail_action: false
-          artifact_name: 'zap_report'
-
-      # 8. Schemathesis (API Scan) - Saving output to json
-      - name: Schemathesis API Scan
         run: |
-          docker run --network="host" schemathesis/schemathesis:latest \
-          run http://localhost:8888/openapi.json \
-          --checks all --base-url http://localhost:8888 > schemathesis_report.json
+          mkdir -p zap_report
+          chmod 777 zap_report
+          docker run --rm -v $(pwd)/zap_report:/zap/wrk/:rw --network="host" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t http://localhost:8888 -r report.html
         continue-on-error: true
 
-      # 9. Nikto (Server Scan) - Saving to xml
+      # 8. Schemathesis (API Scan)
+      - name: Schemathesis API Scan
+        run: |
+          docker run --rm --network="host" schemathesis/schemathesis:latest \
+          run --url http://localhost:8888/openapi.json \
+          --checks all > schemathesis_report.json
+        continue-on-error: true
+
+      # 9. Nikto (Server scan)
       - name: Nikto Server Scan
         run: |
-          docker run --rm --network="host" sullo/nikto -h http://localhost:8888 -o nikto_report.xml
+          docker run --rm --network="host" litaliano/nikto -h http://localhost:8888 -o nikto_report.xml
         continue-on-error: true
 
       # 10. Stop crAPI (Cleanup)
@@ -109,7 +109,6 @@ jobs:
         with:
           name: Full-Security-Bundle
           path: |
-            *.html
-            *.json
-            *.xml
-            zap_report/
+            zap_report/report.html
+            schemathesis_report.json
+            nikto_report.xml
