@@ -86,15 +86,15 @@ jobs:
       # 8. Schemathesis (API Scan)
       - name: Schemathesis API Scan
         run: |
-          docker run --rm --network="host" schemathesis/schemathesis:latest \
-          run --url http://localhost:8888/openapi.json \
-          --checks all > schemathesis_report.json
+          docker run --network="host" schemathesis/schemathesis:latest \
+          run http://localhost:8888/openapi.json \
+          --checks all --base-url http://localhost:8888 > schemathesis_report.json || true
         continue-on-error: true
 
-      # 9. Nikto (Server scan)
+      # 9. Nikto (Server scan using official 'sullo/nikto' image)
       - name: Nikto Server Scan
         run: |
-          docker run --rm --network="host" litaliano/nikto -h http://localhost:8888 -o nikto_report.xml
+          docker run --rm --network="host" sullo/nikto -h http://localhost:8888 -o nikto_report.xml
         continue-on-error: true
 
       # 10. Stop crAPI (Cleanup)
@@ -109,6 +109,7 @@ jobs:
         with:
           name: Full-Security-Bundle
           path: |
-            zap_report/report.html
+            report_html.html
             schemathesis_report.json
             nikto_report.xml
+            zap_report/
