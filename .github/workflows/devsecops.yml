@@ -101,7 +101,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y nikto
           nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
 
-      # 10. Upload Artifacts (Total Bundle)
+      # 10. Upload Artifacts (Total Bundle) 
       - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
