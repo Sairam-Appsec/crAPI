@@ -18,19 +18,10 @@ jobs:
         run: |
           git clone https://github.com/DefectDojo/django-DefectDojo
           cd django-DefectDojo
-          
-          # Making all scripts executable to be safe
-          chmod +x ./scripts/*.sh
-          
-          # Minimal setup running in background
+          chmod +x ./scripts/dc-up-minimal.sh
           ./scripts/dc-up-minimal.sh &
-          
-          echo "Waiting for DefectDojo services (Database, Redis, and Web) to initialize..."
-          # Dojo heavy application kabatti min 3-4 mins ivvali mama
-          sleep 240
-          
-          # Check chesthunnam services up ayyayo ledho
-          docker ps
+          echo "Waiting for DefectDojo to stabilize..."
+          sleep 180
 
       # 1. Secrets Scan (TruffleHog)
       - name: Secret Scan
