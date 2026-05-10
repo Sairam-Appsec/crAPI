@@ -103,31 +103,39 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Run Schemathesis and Export to SARIF (Fixing Action Error)
-      - name: Schemathesis to Security Tab
+      # 11. Reporting Phase: Handling Schemathesis and ZAP
+      - name: Generate Security Tab Reports
         if: always()
         run: |
-          # Schemathesis direct ga SARIF support chesthundhi, conversion avasaram ledhu
-          pip install schemathesis
-          schemathesis run http://localhost:8888/openapi.json \
-          --report-format sarif > schemathesis.sarif || true
+          # 1. Convert Schemathesis JSON to a readable format if needed, 
+          # but for GitHub Dashboard, we will use the official ZAP Action for SARIF.
+          echo "Processing reports for Security Tab..."
 
-      # 12. Upload All to GitHub Security Dashboard
-      - name: Final Dashboard Upload
-        uses: github/codeql-action/upload-sarif@v3
+      # Schemathesis reports often need specialized converters, 
+      # so let's focus on getting ZAP results into the dashboard first.
+      - name: ZAP Scan to SARIF
         if: always()
+        uses: zaproxy/action-baseline@v0.12.0
         with:
-          # .sarif file unna prathi tool (ZAP/Schemathesis) dashboard ki velthundi
-          sarif_file: .
-          category: unified-security-scans
+          target: 'http://localhost:8888'
+          artifact_name: 'zap_sarif_report'
+          # Idi automatic ga SARIF generate chesi Dashboard ki pampisthundhi
 
-      # 13. Artifacts Backup (Optional)
-      - name: Archive Reports
+      # 12. Upload any other SARIF files if they exist
+      - name: Upload Security Artifacts
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .
+          category: dynamic-analysis
+
+      # 13. Backup Artifacts (HTML/XML/JSON) for manual download
+      - name: Archive All Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-scan-reports
+          name: full-security-suite-reports
           path: |
             report_html.html
             nikto_report.xml
-            *.sarif
+            schemathesis_report.json
