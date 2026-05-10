@@ -107,7 +107,7 @@ jobs:
       - name: Spin up Dojo, Fetch Token & Auto-Push
         if: always()
         run: |
-          # 1. Shutdown crAPI (Port 8080/8443 free cheyadaniki)
+          # 1. Shutdown crAPI (Port 8080/8443 free)
           cd deploy/docker
           docker compose down || true
           cd ../..
@@ -121,7 +121,7 @@ jobs:
           sleep 240
 
           # 3. DYNAMIC TOKEN EXTRACTION (The Permanent Fix)
-          # Database container nundi admin API key ni direct ga pull chesthunnam
+          # From Database container pulling admin API key directly
           echo "Fetching Dynamic API Token from Dojo Database..."
           DOJO_DYNAMIC_TOKEN=$(docker exec $(docker ps -qf "name=initializer") /bin/bash -c "python3 manage.py shell -c \"from rest_framework.authtoken.models import Token; from django.contrib.auth.models import User; user = User.objects.get(username='admin'); token, created = Token.objects.get_or_create(user=user); print(token.key)\"")
           
