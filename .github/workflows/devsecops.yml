@@ -13,6 +13,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # 0. Ephemeral DefectDojo Setup (Need to run before the scan)
+      - name: Spin up Ephemeral DefectDojo
+        run: |
+          git clone https://github.com/DefectDojo/django-DefectDojo
+          cd django-DefectDojo
+          ./dc-up-minimal.sh &
+          echo "Waiting for DefectDojo to stabilize..."
+          sleep 180 # Dojo initialization will take time
 
       # 1. Secrets Scan (TruffleHog)
       - name: Secret Scan
@@ -101,17 +109,41 @@ jobs:
           sudo apt-get update && sudo apt-get install -y nikto
           nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
 
-      # 10. Upload Artifacts (Total Bundle) 
-      - name: Upload Security Reports
-        uses: actions/upload-artifact@v4
+      # --- PHASE 3: REPORTING & INTEGRATION ---
+
+      # 11. Auto-Push to Ephemeral DefectDojo
+      - name: Auto-Push to DefectDojo
         if: always()
+        run: |
+          echo "Pushing reports to Ephemeral Dojo..."
+          
+          # ZAP Report
+          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+          -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
+          -F "active=true" \
+          -F "verified=true" \
+          -F "scan_type=ZAP Scan" \
+          -F "file=@report_html.html" \
+          -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
+
+          # Nikto Report
+          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+          -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
+          -F "active=true" \
+          -F "verified=true" \
+          -F "scan_type=Nikto Scan" \
+          -F "file=@nikto_report.xml" \
+          -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
+
+      - name: Upload Security Reports Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: Full-Security-Bundle
           path: |
             report_html.html
             schemathesis_report.json
             nikto_report.xml
-          if-no-files-found: warn
 
       # 11. Shutdown crAPI
       - name: Shutdown crAPI
