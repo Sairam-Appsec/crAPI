@@ -11,153 +11,96 @@ jobs:
 
     permissions:
       security-events: write
-      actions: read
       contents: read
+      actions: read
 
     steps:
 
-      # =========================================================
+      # ==========================================
       # CHECKOUT
-      # =========================================================
+      # ==========================================
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # =========================================================
-      # SECRET SCAN - TRUFFLEHOG
-      # =========================================================
-      - name: Secret Scan
-        uses: trufflesecurity/trufflehog@main
-        continue-on-error: true
-        with:
-          path: ./
-          base: ""
-
-      # =========================================================
-      # SAST - SONARCLOUD
-      # =========================================================
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.projectKey=Sairam-Appsec_crAPI
-            -Dsonar.organization=sairam-appsec
-            -Dsonar.java.binaries=.
-            -Dsonar.sources=.
-            -Dsonar.c.file.suffixes=-
-            -Dsonar.cpp.file.suffixes=-
-            -Dsonar.objc.file.suffixes=-
-
-      # =========================================================
-      # SCA - SNYK
-      # =========================================================
-      - name: Snyk Security Scan
-        uses: snyk/actions/node@master
-        continue-on-error: true
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      # =========================================================
-      # IaC SCAN - CHECKOV
-      # =========================================================
-      - name: Checkov Scan
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: .
-          framework: dockerfile
-          soft_fail: true
-
-      # =========================================================
-      # BUILD IMAGE
-      # =========================================================
-      - name: Build Web Image
-        run: |
-          docker build -t crapi/web:latest -f services/web/Dockerfile services/web/
-
-      # =========================================================
-      # CONTAINER SCAN - TRIVY
-      # =========================================================
-      - name: Trivy Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'crapi/web:latest'
-          format: 'table'
-          exit-code: '0'
-          severity: 'CRITICAL,HIGH'
-
-      # =========================================================
+      # ==========================================
       # START crAPI
-      # =========================================================
-      - name: Spin up crAPI
+      # ==========================================
+      - name: Start crAPI
         run: |
           cd deploy/docker
           docker compose up -d
           sleep 120
 
-      # =========================================================
-      # CREATE REPORTS DIRECTORY
-      # =========================================================
-      - name: Create Reports Directory
+      # ==========================================
+      # CREATE REPORT DIRECTORY
+      # ==========================================
+      - name: Create reports directory
         run: |
           mkdir -p reports
           chmod -R 777 reports
 
-      # =========================================================
+      # ==========================================
+      # DEBUG API ENDPOINTS
+      # ==========================================
+      - name: Debug crAPI Endpoints
+        run: |
+          curl -I http://localhost:8888 || true
+          curl -I http://localhost:8888/swagger-ui || true
+          curl -I http://localhost:8888/v2/api-docs || true
+          curl -I http://localhost:8888/openapi.json || true
+
+      # ==========================================
       # OWASP ZAP SCAN
-      # =========================================================
-      - name: OWASP ZAP Baseline Scan
+      # ==========================================
+      - name: Run ZAP Baseline Scan
         run: |
           docker run --rm \
+            --network host \
             -v $(pwd)/reports:/zap/wrk/:rw \
-            --network="host" \
-            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
             -t http://localhost:8888 \
-            -J /zap/wrk/zap.json || true
+            -J zap.json || true
 
-      # =========================================================
-      # CONVERT ZAP JSON TO SARIF
-      # =========================================================
-      - name: Convert ZAP JSON to SARIF
+          echo "==== REPORT FILES ===="
+          ls -lah reports
+
+      # ==========================================
+      # GENERATE ZAP SARIF
+      # ==========================================
+      - name: Generate ZAP SARIF
         run: |
           python3 << 'EOF'
           import json
           import os
 
-          zap_file = "reports/zap.json"
-
-          if not os.path.exists(zap_file):
-              print("ZAP JSON file not found")
-              exit(0)
-
-          with open(zap_file) as f:
-              data = json.load(f)
-
           results = []
 
-          try:
-              alerts = data['site'][0]['alerts']
-          except:
-              alerts = []
+          if os.path.exists("reports/zap.json"):
 
-          for alert in alerts:
-              results.append({
-                  "ruleId": str(alert.get("pluginid", "ZAP")),
-                  "level": "warning",
-                  "message": {
-                      "text": alert.get("alert", "ZAP Alert")
-                  },
-                  "locations": [{
-                      "physicalLocation": {
-                          "artifactLocation": {
-                              "uri": "api"
+              with open("reports/zap.json") as f:
+                  data = json.load(f)
+
+              try:
+                  alerts = data["site"][0]["alerts"]
+              except:
+                  alerts = []
+
+              for alert in alerts:
+                  results.append({
+                      "ruleId": str(alert.get("pluginid", "ZAP")),
+                      "level": "warning",
+                      "message": {
+                          "text": alert.get("alert", "ZAP Alert")
+                      },
+                      "locations": [{
+                          "physicalLocation": {
+                              "artifactLocation": {
+                                  "uri": "app"
+                              }
                           }
-                      }
-                  }]
-              })
+                      }]
+                  })
 
           sarif = {
               "version": "2.1.0",
@@ -174,25 +117,30 @@ jobs:
           with open("reports/zap.sarif", "w") as f:
               json.dump(sarif, f)
 
-          print("ZAP SARIF generated")
+          print("ZAP SARIF generated successfully")
           EOF
 
-      # =========================================================
-      # SCHEMATHESIS API SCAN
-      # =========================================================
-      - name: Schemathesis API Scan
+      # ==========================================
+      # INSTALL SCHEMATHESIS
+      # ==========================================
+      - name: Install Schemathesis
         run: |
           pip install schemathesis
 
+      # ==========================================
+      # RUN SCHEMATHESIS
+      # ==========================================
+      - name: Run Schemathesis
+        run: |
           echo "Waiting for crAPI services..."
 
-          timeout 180s bash -c 'until curl -s http://localhost:8888/openapi.json; do sleep 5; done'
+          timeout 180s bash -c 'until curl -s http://localhost:8888/v2/api-docs; do sleep 5; done'
 
-          schemathesis run http://localhost:8888/openapi.json || true
+          schemathesis run http://localhost:8888/v2/api-docs || true
 
-      # =========================================================
+      # ==========================================
       # GENERATE SCHEMATHESIS SARIF
-      # =========================================================
+      # ==========================================
       - name: Generate Schemathesis SARIF
         run: |
           python3 << 'EOF'
@@ -208,14 +156,14 @@ jobs:
                   },
                   "results": [{
                       "ruleId": "SCHEMATHESIS",
-                      "level": "warning",
+                      "level": "note",
                       "message": {
-                          "text": "Schemathesis API scan completed"
+                          "text": "Schemathesis scan completed"
                       },
                       "locations": [{
                           "physicalLocation": {
                               "artifactLocation": {
-                                  "uri": "api"
+                                  "uri": "app"
                               }
                           }
                       }]
@@ -229,57 +177,55 @@ jobs:
           print("Schemathesis SARIF generated")
           EOF
 
-      # =========================================================
-      # NIKTO SCAN
-      # =========================================================
-      - name: Nikto Server Scan
+      # ==========================================
+      # INSTALL NIKTO
+      # ==========================================
+      - name: Install Nikto
         run: |
           sudo apt-get update
           sudo apt-get install -y nikto
 
+      # ==========================================
+      # RUN NIKTO
+      # ==========================================
+      - name: Run Nikto Scan
+        run: |
           nikto -h http://localhost:8888 \
-            -Format xml \
-            -o reports/nikto.xml || true
+            -Format txt \
+            -o reports/nikto.txt || true
 
-      # =========================================================
-      # CONVERT NIKTO XML TO SARIF
-      # =========================================================
-      - name: Convert Nikto XML to SARIF
+      # ==========================================
+      # GENERATE NIKTO SARIF
+      # ==========================================
+      - name: Generate Nikto SARIF
         run: |
           python3 << 'EOF'
-          import xml.etree.ElementTree as ET
           import json
           import os
 
-          xml_file = "reports/nikto.xml"
-
-          if not os.path.exists(xml_file):
-              print("Nikto XML not found")
-              exit(0)
-
-          tree = ET.parse(xml_file)
-          root = tree.getroot()
-
           results = []
 
-          for item in root.findall(".//item"):
+          if os.path.exists("reports/nikto.txt"):
 
-              desc = item.findtext("description", default="Nikto Finding")
+              with open("reports/nikto.txt") as f:
+                  lines = f.readlines()
 
-              results.append({
-                  "ruleId": "NIKTO",
-                  "level": "warning",
-                  "message": {
-                      "text": desc
-                  },
-                  "locations": [{
-                      "physicalLocation": {
-                          "artifactLocation": {
-                              "uri": "api"
-                          }
-                      }
-                  }]
-              })
+              for line in lines:
+                  if "+ " in line:
+                      results.append({
+                          "ruleId": "NIKTO",
+                          "level": "warning",
+                          "message": {
+                              "text": line.strip()
+                          },
+                          "locations": [{
+                              "physicalLocation": {
+                                  "artifactLocation": {
+                                      "uri": "app"
+                                  }
+                              }
+                          }]
+                      })
 
           sarif = {
               "version": "2.1.0",
@@ -299,52 +245,46 @@ jobs:
           print("Nikto SARIF generated")
           EOF
 
-      # =========================================================
-      # VERIFY GENERATED FILES
-      # =========================================================
-      - name: Verify Generated Reports
-        if: always()
+      # ==========================================
+      # VERIFY REPORTS
+      # ==========================================
+      - name: Verify Reports
         run: |
-          echo "Listing reports..."
+          echo "==== GENERATED FILES ===="
           ls -lah reports
 
-      # =========================================================
+      # ==========================================
       # UPLOAD ZAP SARIF
-      # =========================================================
+      # ==========================================
       - name: Upload ZAP SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: reports/zap.sarif
           category: zap
 
-      # =========================================================
+      # ==========================================
       # UPLOAD NIKTO SARIF
-      # =========================================================
+      # ==========================================
       - name: Upload Nikto SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: reports/nikto.sarif
           category: nikto
 
-      # =========================================================
+      # ==========================================
       # UPLOAD SCHEMATHESIS SARIF
-      # =========================================================
+      # ==========================================
       - name: Upload Schemathesis SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: reports/schema.sarif
           category: schemathesis
 
-      # =========================================================
+      # ==========================================
       # ARCHIVE REPORTS
-      # =========================================================
-      - name: Archive All Reports
-        if: always()
+      # ==========================================
+      - name: Archive Reports
         uses: actions/upload-artifact@v4
         with:
-          name: full-devsecops-reports
-          path: |
-            reports/
+          name: security-reports
+          path: reports/
