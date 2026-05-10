@@ -103,49 +103,35 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Unified Reporting: All Scans in One Engagement
-      - name: Final Orchestration
+      # 11. Final Push for Recording
+      - name: Auto-Push to DefectDojo
         if: always()
         run: |
-          # 1. Port clean-up
-          cd deploy/docker
-          docker compose down || true
-          cd ../..
-
-          # 2. Start DefectDojo
+          # 1. Start Dojo and wait
           git clone https://github.com/DefectDojo/django-DefectDojo
           cd django-DefectDojo
           docker compose up -d
-          
-          echo "Waiting 4 mins for dashboard..."
-          sleep 240
+          echo "Waiting 4 mins..." && sleep 240
 
-          # 3. Dynamic Token Fetch & Clean (Removing spaces)
-          CONT_NAME=$(docker ps --filter "name=uwsgi" --format "{{.Names}}")
-          RAW_TOKEN=$(docker exec $CONT_NAME python3 manage.py shell -c "from rest_framework.authtoken.models import Token; from django.contrib.auth.models import User; user=User.objects.get(username='admin'); token, _ = Token.objects.get_or_create(user=user); print(token.key)")
-          CLEAN_TOKEN=$(echo $RAW_TOKEN | tr -d '[:space:]')
+          # 2. Hardcoded Token (Temporary for Success)
+          # Ephemeral Dojo default admin token idhe
+          FINAL_TOKEN="3101c56b9c9f6d140e6080536c4b223c21a4f07a"
           
           cd ..
-
-          # 4. Push All Reports to One Place
-          ENGAGEMENT="Unified-Security-Scan"
           
-          # ZAP Push
-          ZAP_FILE=$(find . -name "report_html.html" | head -n 1)
-          if [ -n "$ZAP_FILE" ]; then
-            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-            -H "Authorization: Token $CLEAN_TOKEN" \
-            -F "active=true" -F "verified=true" \
-            -F "scan_type=ZAP Scan" -F "product_name=crAPI" \
-            -F "engagement_name=$ENGAGEMENT" -F "file=@$ZAP_FILE"
-          fi
+          # 3. Combined Push to Unified Engagement
+          # ZAP Scan
+          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+          -H "Authorization: Token $FINAL_TOKEN" \
+          -F "active=true" -F "verified=true" \
+          -F "scan_type=ZAP Scan" -F "product_name=crAPI" \
+          -F "engagement_name=Unified-Security-Report" \
+          -F "file=@./report_html.html"
 
-          # Nikto Push
-          NIKTO_FILE=$(find . -name "nikto_report.xml" | head -n 1)
-          if [ -n "$NIKTO_FILE" ]; then
-            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-            -H "Authorization: Token $CLEAN_TOKEN" \
-            -F "active=true" -F "verified=true" \
-            -F "scan_type=Nikto Scan" -F "product_name=crAPI" \
-            -F "engagement_name=$ENGAGEMENT" -F "file=@$NIKTO_FILE"
-          fi
+          # Nikto Scan
+          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+          -H "Authorization: Token $FINAL_TOKEN" \
+          -F "active=true" -F "verified=true" \
+          -F "scan_type=Nikto Scan" -F "product_name=crAPI" \
+          -F "engagement_name=Unified-Security-Report" \
+          -F "file=@./nikto_report.xml"
