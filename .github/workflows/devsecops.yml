@@ -11,7 +11,7 @@ jobs:
     permissions:
       security-events: write  # Dashboard upload ki idi main
       actions: read
-      contents: write
+      contents: read
       issues: write
     steps:
       - name: Checkout Code
@@ -106,31 +106,32 @@ jobs:
           sudo apt-get update && sudo apt-get install -y nikto
           nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
 
-      # --- PHASE 3: REPORTING & INTEGRATION ---
+     # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. ZAP Reporting (Official Action use chesthunnam direct ga)
+      # 11. ZAP Reporting (Official Action used for SARIF)
       - name: ZAP Scan to SARIF
         if: always()
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: 'http://localhost:8888'
-          token: ${{ secrets.GITHUB_TOKEN }} # Scopes correct ga unte idi work avthundhi
-          issue_title: 'Security Scan Finding'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Nuvvu issues disable chesav kabatti 'fail_action' false peduthunnam
+          fail_action: false
 
-      # 12. Final Dashboard Push
+      # 12. Upload Everything to Security Tab
       - name: Upload Security Artifacts
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: .
-          category: dynamic-analysis
+          category: security-dashboard
 
-      # 13. Archive All Reports
-      - name: Archive All Reports
+      # 13. Backup Artifacts (Downloadable files)
+      - name: Archive Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-security-reports
+          name: final-devsecops-reports
           path: |
             report_html.html
             nikto_report.xml
