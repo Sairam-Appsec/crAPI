@@ -13,11 +13,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # 0. Ephemeral DefectDojo Setup (Need to run before the scan)
+      # 0. Ephemeral DefectDojo Setup
       - name: Spin up Ephemeral DefectDojo
         run: |
           git clone https://github.com/DefectDojo/django-DefectDojo
-          cd django-DefectDojo  
+          cd django-DefectDojo
+          ls -la # Folder structure check cheyadaniki
+          # Script ki permissions icchi execute cheyali
+          chmod +x ./dc-up-minimal.sh
           ./dc-up-minimal.sh &
           echo "Waiting for DefectDojo to stabilize..."
           sleep 180
