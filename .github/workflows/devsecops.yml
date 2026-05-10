@@ -18,10 +18,9 @@ jobs:
         run: |
           git clone https://github.com/DefectDojo/django-DefectDojo
           cd django-DefectDojo
-          ls -la # Folder structure check cheyadaniki
-          # Script ki permissions icchi execute cheyali
-          chmod +x ./dc-up-minimal.sh
-          ./dc-up-minimal.sh &
+          # Correct path to script
+          chmod +x ./scripts/dc-up-minimal.sh
+          ./scripts/dc-up-minimal.sh &
           echo "Waiting for DefectDojo to stabilize..."
           sleep 180
 
@@ -120,25 +119,32 @@ jobs:
         run: |
           echo "Pushing results to DefectDojo..."
           
-          # ZAP Report Push
-          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-          -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
-          -F "active=true" \
-          -F "verified=true" \
-          -F "scan_type=ZAP Scan" \
-          -F "product_name=crAPI" \
-          -F "engagement_name=Automated-Scan" \
-          -F "file=@report_html.html"
+          # Check if file exists before pushing to avoid Curl Error 26
+          if [ -f "./report_html.html" ]; then
+            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+            -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
+            -F "active=true" \
+            -F "verified=true" \
+            -F "scan_type=ZAP Scan" \
+            -F "product_name=crAPI" \
+            -F "engagement_name=Automated-Scan" \
+            -F "file=@report_html.html"
+          else
+            echo "ZAP Report not found, skipping..."
+          fi
 
-          # Nikto Report Push
-          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-          -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
-          -F "active=true" \
-          -F "verified=true" \
-          -F "scan_type=Nikto Scan" \
-          -F "product_name=crAPI" \
-          -F "engagement_name=Automated-Scan" \
-          -F "file=@nikto_report.xml"
+          if [ -f "./nikto_report.xml" ]; then
+            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+            -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
+            -F "active=true" \
+            -F "verified=true" \
+            -F "scan_type=Nikto Scan" \
+            -F "product_name=crAPI" \
+            -F "engagement_name=Automated-Scan" \
+            -F "file=@nikto_report.xml"
+          else
+            echo "Nikto Report not found, skipping..."
+          fi
 
       - name: Upload Security Reports Artifacts
         if: always()
