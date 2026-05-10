@@ -19,12 +19,15 @@ jobs:
         run: |
           git clone https://github.com/DefectDojo/django-DefectDojo
           cd django-DefectDojo
-          # Script badulu direct ga docker-compose up chesthunnam
-          # --profile mysql-rabbitmq minimal setup kosam
-          docker-compose -f docker-compose.yml up -d
-          echo "Waiting for DefectDojo services to initialize..."
+          
+          # GitHub Runners lo 'docker compose' (no hyphen) vaadaali
+          docker compose -f docker-compose.yml up -d
+          
+          echo "Waiting for DefectDojo services to fully initialize..."
+          # Dojo ki min 4 mins ivvali mama, database setup avvadaniki
           sleep 240
-          # Health check kosam containers chusthunnam
+          
+          # Verify chesthunnam
           docker ps
 
       # 1. Secrets Scan (TruffleHog)
@@ -116,14 +119,15 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Push Reports to DefectDojo
+      # 11. Auto-Push to DefectDojo
       - name: Auto-Push to DefectDojo
         if: always()
         run: |
-          echo "Pushing results to DefectDojo..."
+          echo "Locating and pushing results..."
           
-          # ZAP Report Check & Push
-          if [ -f "./report_html.html" ]; then
+          # ZAP Report ethiki push chesthunnam
+          ZAP_FILE=$(find . -name "report_html.html" | head -n 1)
+          if [ -n "$ZAP_FILE" ]; then
             curl -X POST "http://localhost:8080/api/v2/import-scan/" \
             -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
             -F "active=true" \
@@ -131,21 +135,10 @@ jobs:
             -F "scan_type=ZAP Scan" \
             -F "product_name=crAPI" \
             -F "engagement_name=Automated-Scan" \
-            -F "file=@report_html.html"
+            -F "file=@$ZAP_FILE"
+            echo "ZAP Report Sent!"
           else
-            echo "ZAP Report file missing!"
-          fi
-
-          # Nikto Report Check & Push
-          if [ -f "./nikto_report.xml" ]; then
-            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-            -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
-            -F "active=true" \
-            -F "verified=true" \
-            -F "scan_type=Nikto Scan" \
-            -F "product_name=crAPI" \
-            -F "engagement_name=Automated-Scan" \
-            -F "file=@nikto_report.xml"
+            echo "ZAP Report not found anywhere!"
           fi
 
       - name: Upload Security Reports Artifacts
