@@ -17,10 +17,10 @@ jobs:
       - name: Spin up Ephemeral DefectDojo
         run: |
           git clone https://github.com/DefectDojo/django-DefectDojo
-          cd django-DefectDojo
+          cd django-DefectDojo  
           ./dc-up-minimal.sh &
           echo "Waiting for DefectDojo to stabilize..."
-          sleep 180 # Dojo initialization will take time
+          sleep 180
 
       # 1. Secrets Scan (TruffleHog)
       - name: Secret Scan
@@ -111,29 +111,31 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Auto-Push to Ephemeral DefectDojo
+      # 11. Push Reports to DefectDojo
       - name: Auto-Push to DefectDojo
         if: always()
         run: |
-          echo "Pushing reports to Ephemeral Dojo..."
+          echo "Pushing results to DefectDojo..."
           
-          # ZAP Report
+          # ZAP Report Push
           curl -X POST "http://localhost:8080/api/v2/import-scan/" \
           -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
           -F "active=true" \
           -F "verified=true" \
           -F "scan_type=ZAP Scan" \
-          -F "file=@report_html.html" \
-          -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
+          -F "product_name=crAPI" \
+          -F "engagement_name=Automated-Scan" \
+          -F "file=@report_html.html"
 
-          # Nikto Report
+          # Nikto Report Push
           curl -X POST "http://localhost:8080/api/v2/import-scan/" \
           -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
           -F "active=true" \
           -F "verified=true" \
           -F "scan_type=Nikto Scan" \
-          -F "file=@nikto_report.xml" \
-          -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
+          -F "product_name=crAPI" \
+          -F "engagement_name=Automated-Scan" \
+          -F "file=@nikto_report.xml"
 
       - name: Upload Security Reports Artifacts
         if: always()
