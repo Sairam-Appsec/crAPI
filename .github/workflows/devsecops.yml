@@ -103,54 +103,61 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Shutdown crAPI and Startup DefectDojo for Reporting
-      - name: Shutdown crAPI and Auto-Push to Dojo
+      # 11. Final Orchestration: Dynamic Token Fetch & Push
+      - name: Spin up Dojo, Fetch Token & Auto-Push
         if: always()
         run: |
-          # A. Shutdown crAPI to free up ports (8080/8443)
+          # 1. Shutdown crAPI (Port 8080/8443 free cheyadaniki)
           cd deploy/docker
           docker compose down || true
           cd ../..
 
-          # B. Spin up Ephemeral DefectDojo
-          echo "Setting up DefectDojo..."
+          # 2. Spin up Ephemeral DefectDojo
           git clone https://github.com/DefectDojo/django-DefectDojo
           cd django-DefectDojo
           docker compose -f docker-compose.yml up -d
           
           echo "Waiting for DefectDojo to initialize (4 mins)..."
           sleep 240
+
+          # 3. DYNAMIC TOKEN EXTRACTION (The Permanent Fix)
+          # Database container nundi admin API key ni direct ga pull chesthunnam
+          echo "Fetching Dynamic API Token from Dojo Database..."
+          DOJO_DYNAMIC_TOKEN=$(docker exec $(docker ps -qf "name=initializer") /bin/bash -c "python3 manage.py shell -c \"from rest_framework.authtoken.models import Token; from django.contrib.auth.models import User; user = User.objects.get(username='admin'); token, created = Token.objects.get_or_create(user=user); print(token.key)\"")
+          
+          if [ -z "$DOJO_DYNAMIC_TOKEN" ]; then
+            echo "Failed to fetch token! Trying fallback..."
+            # Fallback: Trying to get from postgres container directly
+            DOJO_DYNAMIC_TOKEN=$(docker exec $(docker ps -qf "name=postgres") psql -U defectdojo -d defectdojo -t -c "SELECT key FROM authtoken_token LIMIT 1;" | xargs)
+          fi
+
+          echo "Token Fetched Successfully."
           cd ..
 
-          # C. Nee existing Logic (Line 128-136) - Find & Push Reports
-          echo "Locating and pushing results..."
-          
-          # ZAP Report Push
+          # 4. Pushing Reports using the Dynamic Token
           ZAP_FILE=$(find . -name "report_html.html" | head -n 1)
-          if [ -n "$ZAP_FILE" ]; then
-            echo "Pushing ZAP Report: $ZAP_FILE"
+          if [ -n "$ZAP_FILE" ] && [ -n "$DOJO_DYNAMIC_TOKEN" ]; then
+            echo "Pushing ZAP Report with Dynamic Token..."
             curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-            -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
+            -H "Authorization: Token $DOJO_DYNAMIC_TOKEN" \
             -F "active=true" \
             -F "verified=true" \
             -F "scan_type=ZAP Scan" \
             -F "product_name=crAPI" \
             -F "engagement_name=Automated-Scan" \
             -F "file=@$ZAP_FILE"
-          else
-            echo "ZAP Report not found!"
+            echo "ZAP Push Done!"
           fi
 
-          # Nikto Report Push
           NIKTO_FILE=$(find . -name "nikto_report.xml" | head -n 1)
-          if [ -n "$NIKTO_FILE" ]; then
-            echo "Pushing Nikto Report: $NIKTO_FILE"
+          if [ -n "$NIKTO_FILE" ] && [ -n "$DOJO_DYNAMIC_TOKEN" ]; then
+            echo "Pushing Nikto Report..."
             curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-            -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
+            -H "Authorization: Token $DOJO_DYNAMIC_TOKEN" \
             -F "active=true" \
             -F "verified=true" \
             -F "scan_type=Nikto Scan" \
             -F "product_name=crAPI" \
             -F "engagement_name=Automated-Scan" \
             -F "file=@$NIKTO_FILE"
-          fi 
+          fi
