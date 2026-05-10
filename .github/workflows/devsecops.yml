@@ -108,31 +108,40 @@ jobs:
 
      # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. ZAP Reporting (Official Action used for SARIF)
+      # 11. ZAP Reporting Fix (Official Action for proper SARIF)
       - name: ZAP Scan to SARIF
         if: always()
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: 'http://localhost:8888'
           token: ${{ secrets.GITHUB_TOKEN }}
-          # Nuvvu issues disable chesav kabatti 'fail_action' false peduthunnam
           fail_action: false
 
-      # 12. Upload Everything to Security Tab
-      - name: Upload Security Artifacts
+      # 12. Schemathesis to SARIF (No external action, direct tool output)
+      - name: Schemathesis to Security Tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: .
-          category: security-dashboard
+        run: |
+          pip install schemathesis
+          # Direct ga SARIF format generate chesthunnam
+          schemathesis run http://localhost:8888/openapi.json \
+          --report-format sarif > schemathesis.sarif || true
 
-      # 13. Backup Artifacts (Downloadable files)
-      - name: Archive Reports
+      # 13. Final Upload to GitHub Security Dashboard
+      - name: Upload Everything to Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          # current directory lo unna .sarif files (ZAP & Schemathesis) anni upload avthayi
+          sarif_file: .
+          category: unified-scans
+
+      # 14. Archive Reports (Manual check kosam)
+      - name: Archive All Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-devsecops-reports
+          name: full-security-suite
           path: |
-            report_html.html
-            nikto_report.xml
-            schemathesis_report.json
+            *.html
+            *.sarif
+            *.xml
