@@ -153,4 +153,4 @@ jobs:
             -F "product_name=crAPI" \
             -F "engagement_name=Automated-Scan" \
             -F "file=@$NIKTO_FILE"
-          fi
+          fi 
