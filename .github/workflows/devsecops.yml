@@ -103,49 +103,40 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Final Push: Ports Clean & Token Filtered
-      - name: Ultimate Automation Push
+      # 10. ZAP JSON to SARIF (For Dashboard)
+      - name: ZAP JSON to SARIF
         if: always()
         run: |
-          # 1. Force kill everything on ports (No more "address already in use")
-          echo "Force cleaning ports 8080 and 8443..."
-          docker stop $(docker ps -aq) || true
-          docker rm $(docker ps -aq) || true
-          sudo fuser -k 8080/tcp || true
-          sudo fuser -k 8443/tcp || true
+          # ZAP scan step lo '-J zap_report.json' generate chesthundhi kabatti
+          # Danni GitHub dashboard ki kavalsina SARIF loki marchali
+          # If zap2sarif is not there, we can use a direct upload if formatting matches
+          cp zap_out/zap_report.json zap_results.sarif || true
 
-          # 2. Spin up DefectDojo
-          git clone https://github.com/DefectDojo/django-DefectDojo
-          cd django-DefectDojo
-          docker compose up -d
-          
-          echo "Waiting for services to stabilize (4 mins)..."
-          sleep 240
+      # 11. Convert Schemathesis JUnit to SARIF
+      - name: Schemathesis to SARIF
+        if: always()
+        uses: microfocus/junit-to-sarif-action@v1
+        with:
+          junit-report: schemathesis_report.xml
+          sarif-output: schemathesis.sarif
 
-          # 3. Dynamic Token Fetch with TR -D (Removes all spaces/newlines)
-          echo "Fetching and cleaning token..."
-          CONT_ID=$(docker ps -qf "name=uwsgi")
-          RAW_TOKEN=$(docker exec $CONT_ID python3 manage.py shell -c "from rest_framework.authtoken.models import Token; from django.contrib.auth.models import User; user=User.objects.get(username='admin'); token, _ = Token.objects.get_or_create(user=user); print(token.key)")
-          
-          # TR -D logic to make sure the token is pure
-          FINAL_TOKEN=$(echo $RAW_TOKEN | tr -d '\r' | tr -d '\n' | tr -d ' ')
-          echo "Clean Token ready."
-          
-          cd ..
+      # 12. Final Push to GitHub Security Dashboard
+      - name: Upload All Reports to Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          # current directory lo unna .sarif files anni upload avthayi
+          sarif_file: .
+          category: unified-security-scans
 
-          # 4. Push Both Reports to the same place for Screen Recording
-          # ZAP Scan
-          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-          -H "Authorization: Token $FINAL_TOKEN" \
-          -F "active=true" -F "verified=true" \
-          -F "scan_type=ZAP Scan" -F "product_name=crAPI" \
-          -F "engagement_name=Unified-Security-Report" \
-          -F "file=@./report_html.html"
-
-          # Nikto Scan
-          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-          -H "Authorization: Token $FINAL_TOKEN" \
-          -F "active=true" -F "verified=true" \
-          -F "scan_type=Nikto Scan" -F "product_name=crAPI" \
-          -F "engagement_name=Unified-Security-Report" \
-          -F "file=@./nikto_report.xml"
+      # 13. Backup Artifacts (Zip format download kosam)
+      - name: Archive Production Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-reports
+          path: |
+            report_html.html
+            nikto_report.xml
+            schemathesis_report.xml
+            *.sarif
