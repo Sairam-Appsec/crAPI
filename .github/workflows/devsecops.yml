@@ -106,41 +106,41 @@ jobs:
           sudo apt-get update && sudo apt-get install -y nikto
           nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
 
-     # --- PHASE 3: REPORTING & INTEGRATION ---
+     # --- PHASE 3: REPORTING & DASHBOARD INTEGRATION ---
 
-      # 11. ZAP Scan - Direct Dashboard Upload
-      - name: ZAP Baseline Scan
+      # 11. ZAP Baseline Scan (Official Action - Stable & Green)
+      - name: ZAP Scan to SARIF
         if: always()
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: 'http://localhost:8888'
           token: ${{ secrets.GITHUB_TOKEN }}
-          fail_action: false # Scan findings unna pipeline fail avvakunda report pampisthundi
+          fail_action: false # Findings unna pipeline green gaane untundhi, idi recording ki perfect.
 
-      # 12. Schemathesis - Fix Version & Output
+      # 12. Schemathesis (Version issue dobbichadaniki simplified command)
       - name: Schemathesis Scan
         if: always()
         run: |
           pip install --upgrade schemathesis
-          # JUnit XML create chesthunnam, deenni dashboard upload ki pampochu
+          # JUnit XML create chesthunnam, dashboard upload lo errors raavu.
           schemathesis run http://localhost:8888/openapi.json --junit-xml=schemathesis_report.xml || true
 
-      # 13. Centralized Dashboard Push (Checkov + ZAP + Schemathesis)
-      - name: Upload All Findings to Security Tab
+      # 13. Upload All Results to GitHub Security Tab
+      - name: Final Dashboard Push
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          # Ikada '.' unte total workspace lo unna SARIF files anni (Checkov/ZAP) dashboard ki velthayi
+          # Idhi Checkov and ZAP sarif files ni ethukuvelthundi.
           sarif_file: .
-          category: multi-tool-security-report
+          category: dynamic-analysis
 
-      # 14. Artifacts (Visual check kosam backup)
-      - name: Final Reports Backup
+      # 14. Archive Artifacts (Downloadable reports for backup)
+      - name: Archive All Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: devsecops-master-reports
+          name: full-devsecops-reports
           path: |
-            *.html
-            *.xml
             *.sarif
+            *.xml
+            *.html
