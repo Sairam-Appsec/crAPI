@@ -106,23 +106,20 @@ jobs:
           sudo apt-get update && sudo apt-get install -y nikto
           nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
 
-     # --- PHASE 3: REPORTING & DASHBOARD INTEGRATION ---
+     # --- PHASE 3: SIMPLE HTML REPORTING ---
 
-      # 11. ZAP Baseline Scan (Official Action - Stable & Green)
-      - name: ZAP Scan to SARIF
-        if: always()
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: 'http://localhost:8888'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fail_action: false # Findings unna pipeline green gaane untundhi, idi recording ki perfect.
-
-      # 12. Schemathesis (Version issue dobbichadaniki simplified command)
-      - name: Schemathesis Scan
-        if: always()
+      # 1. ZAP Scan (HTML Report only, no dashboard push)
+      - name: ZAP Baseline Scan
         run: |
-          pip install --upgrade schemathesis
-          # JUnit XML create chesthunnam, dashboard upload lo errors raavu.
+          mkdir -p zap-reports
+          docker run -v $(pwd):/zap/wrk/:rw -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+          -t http://localhost:8888 -r zap_report.html || true
+
+      # 2. Schemathesis (Simple output to text file)
+      - name: Schemathesis Scan
+        run: |
+          pip install schemathesis
+          schemathesis run http://localhost:8888/openapi.json > schemathesis_report.txt || true
           schemathesis run http://localhost:8888/openapi.json --junit-xml=schemathesis_report.xml || true
 
       # 13. Upload All Results to GitHub Security Tab
