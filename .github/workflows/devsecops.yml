@@ -8,6 +8,11 @@ on:
 jobs:
   Security-Scans:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # Dashboard upload ki idi main
+      actions: read
+      contents: write
+      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -103,25 +108,16 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Reporting Phase: Handling Schemathesis and ZAP
-      - name: Generate Security Tab Reports
-        if: always()
-        run: |
-          # 1. Convert Schemathesis JSON to a readable format if needed, 
-          # but for GitHub Dashboard, we will use the official ZAP Action for SARIF.
-          echo "Processing reports for Security Tab..."
-
-      # Schemathesis reports often need specialized converters, 
-      # so let's focus on getting ZAP results into the dashboard first.
+      # 11. ZAP Reporting (Official Action use chesthunnam direct ga)
       - name: ZAP Scan to SARIF
         if: always()
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: 'http://localhost:8888'
-          artifact_name: 'zap_sarif_report'
-          # Idi automatic ga SARIF generate chesi Dashboard ki pampisthundhi
+          token: ${{ secrets.GITHUB_TOKEN }} # Scopes correct ga unte idi work avthundhi
+          issue_title: 'Security Scan Finding'
 
-      # 12. Upload any other SARIF files if they exist
+      # 12. Final Dashboard Push
       - name: Upload Security Artifacts
         if: always()
         uses: github/codeql-action/upload-sarif@v3
@@ -129,12 +125,12 @@ jobs:
           sarif_file: .
           category: dynamic-analysis
 
-      # 13. Backup Artifacts (HTML/XML/JSON) for manual download
+      # 13. Archive All Reports
       - name: Archive All Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-security-suite-reports
+          name: final-security-reports
           path: |
             report_html.html
             nikto_report.xml
