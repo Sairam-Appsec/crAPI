@@ -14,22 +14,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 0. Ephemeral DefectDojo Setup
-      - name: Spin up Ephemeral DefectDojo
-        run: |
-          git clone https://github.com/DefectDojo/django-DefectDojo
-          cd django-DefectDojo
-          
-          # GitHub Runners lo 'docker compose' (no hyphen) vaadaali
-          docker compose -f docker-compose.yml up -d
-          
-          echo "Waiting for DefectDojo services to fully initialize..."
-          # Dojo ki min 4 mins ivvali mama, database setup avvadaniki
-          sleep 240
-          
-          # Verify chesthunnam
-          docker ps
-
       # 1. Secrets Scan (TruffleHog)
       - name: Secret Scan
         uses: trufflesecurity/trufflehog@main
@@ -119,15 +103,32 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Auto-Push to DefectDojo
-      - name: Auto-Push to DefectDojo
+      # 11. Shutdown crAPI and Startup DefectDojo for Reporting
+      - name: Shutdown crAPI and Auto-Push to Dojo
         if: always()
         run: |
+          # A. Shutdown crAPI to free up ports (8080/8443)
+          cd deploy/docker
+          docker compose down || true
+          cd ../..
+
+          # B. Spin up Ephemeral DefectDojo
+          echo "Setting up DefectDojo..."
+          git clone https://github.com/DefectDojo/django-DefectDojo
+          cd django-DefectDojo
+          docker compose -f docker-compose.yml up -d
+          
+          echo "Waiting for DefectDojo to initialize (4 mins)..."
+          sleep 240
+          cd ..
+
+          # C. Nee existing Logic (Line 128-136) - Find & Push Reports
           echo "Locating and pushing results..."
           
-          # ZAP Report ethiki push chesthunnam
+          # ZAP Report Push
           ZAP_FILE=$(find . -name "report_html.html" | head -n 1)
           if [ -n "$ZAP_FILE" ]; then
+            echo "Pushing ZAP Report: $ZAP_FILE"
             curl -X POST "http://localhost:8080/api/v2/import-scan/" \
             -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
             -F "active=true" \
@@ -136,24 +137,20 @@ jobs:
             -F "product_name=crAPI" \
             -F "engagement_name=Automated-Scan" \
             -F "file=@$ZAP_FILE"
-            echo "ZAP Report Sent!"
           else
-            echo "ZAP Report not found anywhere!"
+            echo "ZAP Report not found!"
           fi
 
-      - name: Upload Security Reports Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Full-Security-Bundle
-          path: |
-            report_html.html
-            schemathesis_report.json
-            nikto_report.xml
-
-      # 11. Shutdown crAPI
-      - name: Shutdown crAPI
-        if: always()
-        run: |
-          cd deploy/docker
-          docker compose down || true
+          # Nikto Report Push
+          NIKTO_FILE=$(find . -name "nikto_report.xml" | head -n 1)
+          if [ -n "$NIKTO_FILE" ]; then
+            echo "Pushing Nikto Report: $NIKTO_FILE"
+            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+            -H "Authorization: Token ${{ secrets.DOJO_TOKEN }}" \
+            -F "active=true" \
+            -F "verified=true" \
+            -F "scan_type=Nikto Scan" \
+            -F "product_name=crAPI" \
+            -F "engagement_name=Automated-Scan" \
+            -F "file=@$NIKTO_FILE"
+          fi
