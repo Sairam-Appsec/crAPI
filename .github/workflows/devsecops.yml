@@ -103,50 +103,49 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Unified Reporting: All Scans in One Engagement
-      - name: Final Orchestration
+      # 11. Final Push: Ports Clean & Token Filtered
+      - name: Ultimate Automation Push
         if: always()
         run: |
-          # 1. AGGRESSIVE PORT CLEANUP (Fixes "Address already in use")
-          echo "Force stopping all containers..."
+          # 1. Force kill everything on ports (No more "address already in use")
+          echo "Force cleaning ports 8080 and 8443..."
           docker stop $(docker ps -aq) || true
           docker rm $(docker ps -aq) || true
-          sudo lsof -t -i:8080 -i:8443 | xargs sudo kill -9 || true
+          sudo fuser -k 8080/tcp || true
+          sudo fuser -k 8443/tcp || true
 
-          # 2. Start DefectDojo
+          # 2. Spin up DefectDojo
           git clone https://github.com/DefectDojo/django-DefectDojo
           cd django-DefectDojo
           docker compose up -d
           
-          echo "Waiting 4 mins for Dojo services to start..."
+          echo "Waiting for services to stabilize (4 mins)..."
           sleep 240
 
-          # 3. STATIC TOKEN (Bypasses all fetch errors)
-          # Ephemeral Dojo default admin token:
-          FINAL_TOKEN="3101c56b9c9f6d140e6080536c4b223c21a4f07a"
+          # 3. Dynamic Token Fetch with TR -D (Removes all spaces/newlines)
+          echo "Fetching and cleaning token..."
+          CONT_ID=$(docker ps -qf "name=uwsgi")
+          RAW_TOKEN=$(docker exec $CONT_ID python3 manage.py shell -c "from rest_framework.authtoken.models import Token; from django.contrib.auth.models import User; user=User.objects.get(username='admin'); token, _ = Token.objects.get_or_create(user=user); print(token.key)")
+          
+          # TR -D logic to make sure the token is pure
+          FINAL_TOKEN=$(echo $RAW_TOKEN | tr -d '\r' | tr -d '\n' | tr -d ' ')
+          echo "Clean Token ready."
           
           cd ..
 
-          # 4. Push Everything to One Place (crAPI Product -> Unified-Scan Engagement)
-          PRODUCT="crAPI"
-          ENGAGEMENT="Unified-Security-Scan"
+          # 4. Push Both Reports to the same place for Screen Recording
+          # ZAP Scan
+          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+          -H "Authorization: Token $FINAL_TOKEN" \
+          -F "active=true" -F "verified=true" \
+          -F "scan_type=ZAP Scan" -F "product_name=crAPI" \
+          -F "engagement_name=Unified-Security-Report" \
+          -F "file=@./report_html.html"
 
-          # ZAP Push
-          ZAP_FILE=$(find . -name "report_html.html" | head -n 1)
-          if [ -n "$ZAP_FILE" ]; then
-            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-            -H "Authorization: Token $FINAL_TOKEN" \
-            -F "active=true" -F "verified=true" \
-            -F "scan_type=ZAP Scan" -F "product_name=$PRODUCT" \
-            -F "engagement_name=$ENGAGEMENT" -F "file=@$ZAP_FILE"
-          fi
-
-          # Nikto Push
-          NIKTO_FILE=$(find . -name "nikto_report.xml" | head -n 1)
-          if [ -n "$NIKTO_FILE" ]; then
-            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
-            -H "Authorization: Token $FINAL_TOKEN" \
-            -F "active=true" -F "verified=true" \
-            -F "scan_type=Nikto Scan" -F "product_name=$PRODUCT" \
-            -F "engagement_name=$ENGAGEMENT" -F "file=@$NIKTO_FILE"
-          fi
+          # Nikto Scan
+          curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+          -H "Authorization: Token $FINAL_TOKEN" \
+          -F "active=true" -F "verified=true" \
+          -F "scan_type=Nikto Scan" -F "product_name=crAPI" \
+          -F "engagement_name=Unified-Security-Report" \
+          -F "file=@./nikto_report.xml"
