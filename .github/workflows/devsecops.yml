@@ -16,17 +16,17 @@ jobs:
 
     steps:
 
-      # =========================
+      # =========================================================
       # CHECKOUT
-      # =========================
+      # =========================================================
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # =========================
-      # SECRET SCAN
-      # =========================
+      # =========================================================
+      # SECRET SCAN - TRUFFLEHOG
+      # =========================================================
       - name: Secret Scan
         uses: trufflesecurity/trufflehog@main
         continue-on-error: true
@@ -34,9 +34,9 @@ jobs:
           path: ./
           base: ""
 
-      # =========================
-      # SONARCLOUD SAST
-      # =========================
+      # =========================================================
+      # SAST - SONARCLOUD
+      # =========================================================
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -52,18 +52,18 @@ jobs:
             -Dsonar.cpp.file.suffixes=-
             -Dsonar.objc.file.suffixes=-
 
-      # =========================
-      # SNYK SCA
-      # =========================
+      # =========================================================
+      # SCA - SNYK
+      # =========================================================
       - name: Snyk Security Scan
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-      # =========================
-      # CHECKOV
-      # =========================
+      # =========================================================
+      # IaC SCAN - CHECKOV
+      # =========================================================
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@master
         with:
@@ -71,16 +71,16 @@ jobs:
           framework: dockerfile
           soft_fail: true
 
-      # =========================
+      # =========================================================
       # BUILD IMAGE
-      # =========================
+      # =========================================================
       - name: Build Web Image
         run: |
           docker build -t crapi/web:latest -f services/web/Dockerfile services/web/
 
-      # =========================
-      # TRIVY SCAN
-      # =========================
+      # =========================================================
+      # CONTAINER SCAN - TRIVY
+      # =========================================================
       - name: Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -89,24 +89,26 @@ jobs:
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
 
-      # =========================
+      # =========================================================
       # START crAPI
-      # =========================
+      # =========================================================
       - name: Spin up crAPI
         run: |
           cd deploy/docker
           docker compose up -d
           sleep 120
 
-      # =========================
-      # CREATE REPORT DIRECTORY
-      # =========================
+      # =========================================================
+      # CREATE REPORTS DIRECTORY
+      # =========================================================
       - name: Create Reports Directory
-        run: mkdir -p reports
+        run: |
+          mkdir -p reports
+          chmod -R 777 reports
 
-      # =========================
-      # ZAP SCAN
-      # =========================
+      # =========================================================
+      # OWASP ZAP SCAN
+      # =========================================================
       - name: OWASP ZAP Baseline Scan
         run: |
           docker run --rm \
@@ -114,23 +116,70 @@ jobs:
             --network="host" \
             ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
             -t http://localhost:8888 \
-            -J zap.json \
-            -r zap_report.html || true
+            -J zap.json || true
 
-      # =========================
-      # CONVERT ZAP TO SARIF
-      # =========================
-      - name: Install ZAP SARIF Converter
-        run: |
-          pip install zap2sarif
-
+      # =========================================================
+      # CONVERT ZAP JSON TO SARIF
+      # =========================================================
       - name: Convert ZAP JSON to SARIF
         run: |
-          zap2sarif reports/zap.json > reports/zap.sarif
+          python3 << 'EOF'
+          import json
+          import os
 
-      # =========================
-      # SCHEMATHESIS
-      # =========================
+          zap_file = "reports/zap.json"
+
+          if not os.path.exists(zap_file):
+              print("ZAP JSON file not found")
+              exit(0)
+
+          with open(zap_file) as f:
+              data = json.load(f)
+
+          results = []
+
+          try:
+              alerts = data['site'][0]['alerts']
+          except:
+              alerts = []
+
+          for alert in alerts:
+              results.append({
+                  "ruleId": str(alert.get("pluginid", "ZAP")),
+                  "level": "warning",
+                  "message": {
+                      "text": alert.get("alert", "ZAP Alert")
+                  },
+                  "locations": [{
+                      "physicalLocation": {
+                          "artifactLocation": {
+                              "uri": "http://localhost:8888"
+                          }
+                      }
+                  }]
+              })
+
+          sarif = {
+              "version": "2.1.0",
+              "runs": [{
+                  "tool": {
+                      "driver": {
+                          "name": "OWASP ZAP"
+                      }
+                  },
+                  "results": results
+              }]
+          }
+
+          with open("reports/zap.sarif", "w") as f:
+              json.dump(sarif, f)
+
+          print("ZAP SARIF generated")
+          EOF
+
+      # =========================================================
+      # SCHEMATHESIS API SCAN
+      # =========================================================
       - name: Schemathesis API Scan
         run: |
           pip install schemathesis
@@ -143,16 +192,23 @@ jobs:
             http://localhost:8888/openapi.json \
             --junit-xml=reports/schema.xml || true
 
-      # =========================
+      # =========================================================
       # CONVERT SCHEMATHESIS XML TO SARIF
-      # =========================
+      # =========================================================
       - name: Convert Schemathesis XML to SARIF
         run: |
           python3 << 'EOF'
           import xml.etree.ElementTree as ET
           import json
+          import os
 
-          tree = ET.parse('reports/schema.xml')
+          xml_file = "reports/schema.xml"
+
+          if not os.path.exists(xml_file):
+              print("Schemathesis XML not found")
+              exit(0)
+
+          tree = ET.parse(xml_file)
           root = tree.getroot()
 
           results = []
@@ -192,11 +248,13 @@ jobs:
 
           with open("reports/schema.sarif", "w") as f:
               json.dump(sarif, f)
+
+          print("Schemathesis SARIF generated")
           EOF
 
-      # =========================
+      # =========================================================
       # NIKTO SCAN
-      # =========================
+      # =========================================================
       - name: Nikto Server Scan
         run: |
           sudo apt-get update
@@ -206,16 +264,23 @@ jobs:
             -Format xml \
             -o reports/nikto.xml || true
 
-      # =========================
+      # =========================================================
       # CONVERT NIKTO XML TO SARIF
-      # =========================
+      # =========================================================
       - name: Convert Nikto XML to SARIF
         run: |
           python3 << 'EOF'
           import xml.etree.ElementTree as ET
           import json
+          import os
 
-          tree = ET.parse('reports/nikto.xml')
+          xml_file = "reports/nikto.xml"
+
+          if not os.path.exists(xml_file):
+              print("Nikto XML not found")
+              exit(0)
+
+          tree = ET.parse(xml_file)
           root = tree.getroot()
 
           results = []
@@ -253,21 +318,22 @@ jobs:
 
           with open("reports/nikto.sarif", "w") as f:
               json.dump(sarif, f)
+
+          print("Nikto SARIF generated")
           EOF
 
-      # =========================
-      # DEBUG REPORTS
-      # =========================
+      # =========================================================
+      # VERIFY GENERATED FILES
+      # =========================================================
       - name: Verify Generated Reports
         if: always()
         run: |
           echo "Listing reports..."
-          ls -R reports
+          ls -lah reports
 
-      # =========================
-      # UPLOAD TO GITHUB SECURITY TAB
-      # =========================
-
+      # =========================================================
+      # UPLOAD ZAP SARIF
+      # =========================================================
       - name: Upload ZAP SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
@@ -275,6 +341,9 @@ jobs:
           sarif_file: reports/zap.sarif
           category: zap
 
+      # =========================================================
+      # UPLOAD NIKTO SARIF
+      # =========================================================
       - name: Upload Nikto SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
@@ -282,6 +351,9 @@ jobs:
           sarif_file: reports/nikto.sarif
           category: nikto
 
+      # =========================================================
+      # UPLOAD SCHEMATHESIS SARIF
+      # =========================================================
       - name: Upload Schemathesis SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
@@ -289,9 +361,9 @@ jobs:
           sarif_file: reports/schema.sarif
           category: schemathesis
 
-      # =========================
+      # =========================================================
       # ARCHIVE REPORTS
-      # =========================
+      # =========================================================
       - name: Archive All Reports
         if: always()
         uses: actions/upload-artifact@v4
