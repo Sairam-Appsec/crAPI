@@ -103,40 +103,36 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 10. ZAP JSON to SARIF (For Dashboard)
-      - name: ZAP JSON to SARIF
+      # 11. Convert Schemathesis JUnit to SARIF (Using a more stable action)
+      - name: Convert Schemathesis to SARIF
+        if: always()
+        uses: p0deje/junit-to-sarif-v2-action@v1
+        with:
+          input: schemathesis_report.xml
+          output: schemathesis.sarif
+
+      # 12. ZAP JSON to SARIF logic
+      - name: ZAP to SARIF
         if: always()
         run: |
-          # ZAP scan step lo '-J zap_report.json' generate chesthundhi kabatti
-          # Danni GitHub dashboard ki kavalsina SARIF loki marchali
-          # If zap2sarif is not there, we can use a direct upload if formatting matches
-          cp zap_out/zap_report.json zap_results.sarif || true
+          # ZAP scan already generates JSON, let's keep it for dashboard processing
+          cp zap_out/zap_report.json zap_results.sarif || true 
 
-      # 11. Convert Schemathesis JUnit to SARIF
-      - name: Schemathesis to SARIF
-        if: always()
-        uses: microfocus/junit-to-sarif-action@v1
-        with:
-          junit-report: schemathesis_report.xml
-          sarif-output: schemathesis.sarif
-
-      # 12. Final Push to GitHub Security Dashboard
+      # 13. Final Push to GitHub Security Dashboard
       - name: Upload All Reports to Security Tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          # current directory lo unna .sarif files anni upload avthayi
           sarif_file: .
           category: unified-security-scans
 
-      # 13. Backup Artifacts (Zip format download kosam)
-      - name: Archive Production Artifacts
+      # 14. Artifacts Backup
+      - name: Archive Security Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: security-scan-reports
+          name: full-security-scan-reports
           path: |
             report_html.html
             nikto_report.xml
-            schemathesis_report.xml
             *.sarif
