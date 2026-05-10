@@ -103,35 +103,30 @@ jobs:
 
       # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. Convert Schemathesis JUnit to SARIF (Using a more stable action)
-      - name: Convert Schemathesis to SARIF
-        if: always()
-        uses: p0deje/junit-to-sarif-v2-action@v1
-        with:
-          input: schemathesis_report.xml
-          output: schemathesis.sarif
-
-      # 12. ZAP JSON to SARIF logic
-      - name: ZAP to SARIF
+      # 11. Run Schemathesis and Export to SARIF (Fixing Action Error)
+      - name: Schemathesis to Security Tab
         if: always()
         run: |
-          # ZAP scan already generates JSON, let's keep it for dashboard processing
-          cp zap_out/zap_report.json zap_results.sarif || true 
+          # Schemathesis direct ga SARIF support chesthundhi, conversion avasaram ledhu
+          pip install schemathesis
+          schemathesis run http://localhost:8888/openapi.json \
+          --report-format sarif > schemathesis.sarif || true
 
-      # 13. Final Push to GitHub Security Dashboard
-      - name: Upload All Reports to Security Tab
+      # 12. Upload All to GitHub Security Dashboard
+      - name: Final Dashboard Upload
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
+          # .sarif file unna prathi tool (ZAP/Schemathesis) dashboard ki velthundi
           sarif_file: .
           category: unified-security-scans
 
-      # 14. Artifacts Backup
-      - name: Archive Security Reports
+      # 13. Artifacts Backup (Optional)
+      - name: Archive Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-security-scan-reports
+          name: full-scan-reports
           path: |
             report_html.html
             nikto_report.xml
