@@ -8,26 +8,35 @@ on:
 jobs:
   Security-Scans:
     runs-on: ubuntu-latest
+
     permissions:
-      security-events: write  # Dashboard upload ki idi main
+      security-events: write
       actions: read
       contents: read
-      issues: write
+
     steps:
+
+      # =========================
+      # CHECKOUT
+      # =========================
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 1. Secrets Scan (TruffleHog)
+      # =========================
+      # SECRET SCAN
+      # =========================
       - name: Secret Scan
         uses: trufflesecurity/trufflehog@main
         continue-on-error: true
         with:
           path: ./
-          base: "" 
+          base: ""
 
-      # 2. SAST (SonarCloud) 
+      # =========================
+      # SONARCLOUD SAST
+      # =========================
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -43,14 +52,18 @@ jobs:
             -Dsonar.cpp.file.suffixes=-
             -Dsonar.objc.file.suffixes=-
 
-      # 3. SCA (Snyk)
+      # =========================
+      # SNYK SCA
+      # =========================
       - name: Snyk Security Scan
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-      # 4. IaC Scan (Checkov)
+      # =========================
+      # CHECKOV
+      # =========================
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@master
         with:
@@ -58,12 +71,16 @@ jobs:
           framework: dockerfile
           soft_fail: true
 
-      # 5. DOCKER BUILD 
+      # =========================
+      # BUILD IMAGE
+      # =========================
       - name: Build Web Image
         run: |
           docker build -t crapi/web:latest -f services/web/Dockerfile services/web/
 
-      # 6. Container Scan (Trivy) 
+      # =========================
+      # TRIVY SCAN
+      # =========================
       - name: Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -71,73 +88,214 @@ jobs:
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
-          # --- PHASE 2: DYNAMIC SECURITY TESTING (DAST) ---
 
-      # 6. Spin up crAPI
+      # =========================
+      # START crAPI
+      # =========================
       - name: Spin up crAPI
         run: |
           cd deploy/docker
           docker compose up -d
-          sleep 120 
+          sleep 120
 
-      # 7. OWASP ZAP (Fixing Permissions with a shell script)
+      # =========================
+      # CREATE REPORT DIRECTORY
+      # =========================
+      - name: Create Reports Directory
+        run: mkdir -p reports
+
+      # =========================
+      # ZAP SCAN
+      # =========================
       - name: OWASP ZAP Baseline Scan
         run: |
-          # Creating workspace and giving full permissions to avoid 'Permission Denied'
-          mkdir -p zap_out
-          chmod 777 zap_out
-          docker run --rm -v $(pwd)/zap_out:/zap/wrk/:rw --network="host" \
-          ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-          -t http://localhost:8888 -r zap_report.html || true
-          # Moving report to root so upload-artifact can find it easily
-          cp zap_out/zap_report.html ./report_html.html || true
+          docker run --rm \
+            -v $(pwd)/reports:/zap/wrk/:rw \
+            --network="host" \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t http://localhost:8888 \
+            -J zap.json \
+            -r zap_report.html || true
 
-      # 8. Schemathesis (Direct check for content)
+      # =========================
+      # CONVERT ZAP TO SARIF
+      # =========================
+      - name: Install ZAP SARIF Converter
+        run: |
+          pip install zap2sarif
+
+      - name: Convert ZAP JSON to SARIF
+        run: |
+          zap2sarif reports/zap.json > reports/zap.sarif
+
+      # =========================
+      # SCHEMATHESIS
+      # =========================
       - name: Schemathesis API Scan
         run: |
           pip install schemathesis
-          echo "Waiting for crAPI services..."
-          timeout 180s bash -c 'until curl -s http://localhost:8888/openapi.json; do sleep 5; done'
-          schemathesis run http://localhost:8888/openapi.json --checks all > schemathesis_report.json || true
 
-      # 9. Nikto (Native install to avoid docker permission issues)
+          echo "Waiting for crAPI services..."
+
+          timeout 180s bash -c 'until curl -s http://localhost:8888/openapi.json; do sleep 5; done'
+
+          schemathesis run \
+            http://localhost:8888/openapi.json \
+            --junit-xml=reports/schema.xml || true
+
+      # =========================
+      # CONVERT SCHEMATHESIS XML TO SARIF
+      # =========================
+      - name: Convert Schemathesis XML to SARIF
+        run: |
+          python3 << 'EOF'
+          import xml.etree.ElementTree as ET
+          import json
+
+          tree = ET.parse('reports/schema.xml')
+          root = tree.getroot()
+
+          results = []
+
+          for testcase in root.iter('testcase'):
+              failure = testcase.find('failure')
+
+              if failure is not None:
+                  text = failure.text if failure.text else "Schemathesis Failure"
+
+                  results.append({
+                      "ruleId": "SCHEMATHESIS",
+                      "level": "error",
+                      "message": {
+                          "text": text[:300]
+                      },
+                      "locations": [{
+                          "physicalLocation": {
+                              "artifactLocation": {
+                                  "uri": testcase.attrib.get('classname', 'api')
+                              }
+                          }
+                      }]
+                  })
+
+          sarif = {
+              "version": "2.1.0",
+              "runs": [{
+                  "tool": {
+                      "driver": {
+                          "name": "Schemathesis"
+                      }
+                  },
+                  "results": results
+              }]
+          }
+
+          with open("reports/schema.sarif", "w") as f:
+              json.dump(sarif, f)
+          EOF
+
+      # =========================
+      # NIKTO SCAN
+      # =========================
       - name: Nikto Server Scan
         run: |
-          sudo apt-get update && sudo apt-get install -y nikto
-          nikto -h http://localhost:8888 -o nikto_report.xml -Format xml || true
+          sudo apt-get update
+          sudo apt-get install -y nikto
 
-     # --- PHASE 3: SIMPLE HTML REPORTING ---
+          nikto -h http://localhost:8888 \
+            -Format xml \
+            -o reports/nikto.xml || true
 
-      # 1. ZAP Scan (HTML Report only, no dashboard push)
-      - name: ZAP Baseline Scan
+      # =========================
+      # CONVERT NIKTO XML TO SARIF
+      # =========================
+      - name: Convert Nikto XML to SARIF
         run: |
-          mkdir -p zap-reports
-          docker run -v $(pwd):/zap/wrk/:rw -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-          -t http://localhost:8888 -r zap_report.html || true
+          python3 << 'EOF'
+          import xml.etree.ElementTree as ET
+          import json
 
-      # 2. Schemathesis (Simple output to text file)
-      - name: Schemathesis Scan
+          tree = ET.parse('reports/nikto.xml')
+          root = tree.getroot()
+
+          results = []
+
+          for item in root.findall(".//item"):
+
+              desc = item.findtext("description", default="Nikto Finding")
+
+              results.append({
+                  "ruleId": "NIKTO",
+                  "level": "warning",
+                  "message": {
+                      "text": desc
+                  },
+                  "locations": [{
+                      "physicalLocation": {
+                          "artifactLocation": {
+                              "uri": "http://localhost:8888"
+                          }
+                      }
+                  }]
+              })
+
+          sarif = {
+              "version": "2.1.0",
+              "runs": [{
+                  "tool": {
+                      "driver": {
+                          "name": "Nikto"
+                      }
+                  },
+                  "results": results
+              }]
+          }
+
+          with open("reports/nikto.sarif", "w") as f:
+              json.dump(sarif, f)
+          EOF
+
+      # =========================
+      # DEBUG REPORTS
+      # =========================
+      - name: Verify Generated Reports
+        if: always()
         run: |
-          pip install schemathesis
-          schemathesis run http://localhost:8888/openapi.json > schemathesis_report.txt || true
-          schemathesis run http://localhost:8888/openapi.json --junit-xml=schemathesis_report.xml || true
+          echo "Listing reports..."
+          ls -R reports
 
-      # 13. Upload All Results to GitHub Security Tab
-      - name: Final Dashboard Push
+      # =========================
+      # UPLOAD TO GITHUB SECURITY TAB
+      # =========================
+
+      - name: Upload ZAP SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          # Idhi Checkov and ZAP sarif files ni ethukuvelthundi.
-          sarif_file: .
-          category: dynamic-analysis
+          sarif_file: reports/zap.sarif
+          category: zap
 
-      # 14. Archive Artifacts (Downloadable reports for backup)
+      - name: Upload Nikto SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: reports/nikto.sarif
+          category: nikto
+
+      - name: Upload Schemathesis SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: reports/schema.sarif
+          category: schemathesis
+
+      # =========================
+      # ARCHIVE REPORTS
+      # =========================
       - name: Archive All Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: full-devsecops-reports
           path: |
-            *.sarif
-            *.xml
-            *.html
+            reports/
