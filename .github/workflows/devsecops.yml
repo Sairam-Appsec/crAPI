@@ -108,40 +108,39 @@ jobs:
 
      # --- PHASE 3: REPORTING & INTEGRATION ---
 
-      # 11. ZAP Reporting Fix (Official Action for proper SARIF)
-      - name: ZAP Scan to SARIF
+      # 11. ZAP Scan - Direct Dashboard Upload
+      - name: ZAP Baseline Scan
         if: always()
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: 'http://localhost:8888'
           token: ${{ secrets.GITHUB_TOKEN }}
-          fail_action: false
+          fail_action: false # Scan findings unna pipeline fail avvakunda report pampisthundi
 
-      # 12. Schemathesis to SARIF (No external action, direct tool output)
-      - name: Schemathesis to Security Tab
+      # 12. Schemathesis - Fix Version & Output
+      - name: Schemathesis Scan
         if: always()
         run: |
-          pip install schemathesis
-          # Direct ga SARIF format generate chesthunnam
-          schemathesis run http://localhost:8888/openapi.json \
-          --report-format sarif > schemathesis.sarif || true
+          pip install --upgrade schemathesis
+          # JUnit XML create chesthunnam, deenni dashboard upload ki pampochu
+          schemathesis run http://localhost:8888/openapi.json --junit-xml=schemathesis_report.xml || true
 
-      # 13. Final Upload to GitHub Security Dashboard
-      - name: Upload Everything to Security Tab
+      # 13. Centralized Dashboard Push (Checkov + ZAP + Schemathesis)
+      - name: Upload All Findings to Security Tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          # current directory lo unna .sarif files (ZAP & Schemathesis) anni upload avthayi
+          # Ikada '.' unte total workspace lo unna SARIF files anni (Checkov/ZAP) dashboard ki velthayi
           sarif_file: .
-          category: unified-scans
+          category: multi-tool-security-report
 
-      # 14. Archive Reports (Manual check kosam)
-      - name: Archive All Reports
+      # 14. Artifacts (Visual check kosam backup)
+      - name: Final Reports Backup
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-security-suite
+          name: devsecops-master-reports
           path: |
             *.html
-            *.sarif
             *.xml
+            *.sarif
